@@ -19,7 +19,7 @@ channels:
 
 # 调度
 schedule:
-  digest_times: ["10:00", "17:00"]
+  digest_times: ["10:00", "15:00", "20:00"]
   fetch_interval_minutes: 30
   following_sync_interval_minutes: 360
   timezone: "Asia/Shanghai"
@@ -28,6 +28,15 @@ schedule:
 classifier:
   min_score: 0.5
   max_items_per_digest: 20
+
+# 告警
+alerts:
+  enabled: true
+
+# 日志
+logging:
+  level: "INFO"
+  dir: "logs"
 
 # 存储
 storage:

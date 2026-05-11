@@ -59,7 +59,7 @@ def search(query: str, candidates: list[dict],
         query_emb = encode([query])[0]
         doc_embs = encode(search_texts)
     except Exception as exc:
-        logger.error("Embedding encode failed: %s", exc)
+        logger.exception("Embedding encode failed")
         return []
 
     scores = np.dot(doc_embs, query_emb)

@@ -16,10 +16,12 @@ from src.db.engine import init_db
 
 
 def setup_logging():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+    from src.logging_setup import setup_logging as do_setup
+    from src.config import load_config as _lc
+    cfg = _lc()
+    do_setup(
+        log_level=getattr(cfg, "log_level", None) or "INFO",
+        log_dir=getattr(cfg, "log_dir", None) or "logs",
     )
 
 
@@ -80,8 +82,17 @@ def cmd_digest(config):
     """Manual one-shot digest send."""
     from src.scheduler.jobs import send_digest_job
     from datetime import datetime
-    now = datetime.now()
-    period = "10:00" if now.hour < 14 else "17:00"
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(config.timezone)
+    now = datetime.now(tz)
+    sorted_times = sorted(config.digest_times)
+    # 找到当天第一个尚未到达的时段，若全部已过则用第一个（次日）
+    period = sorted_times[0]
+    for t in sorted_times:
+        t_hour = int(t.split(":")[0])
+        if now.hour < t_hour:
+            period = t
+            break
     send_digest_job(config, period)
     print(f"[Agent] Digest ({period}) sent.")
 

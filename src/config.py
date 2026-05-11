@@ -48,6 +48,15 @@ class Config:
         self.min_interest_score: float = cl["min_score"]
         self.max_items_per_digest: int = cl["max_items_per_digest"]
 
+        # Alerts
+        al = raw.get("alerts", {})
+        self.alerts_enabled: bool = al.get("enabled", True)
+
+        # Logging
+        lg = raw.get("logging", {})
+        self.log_level: str = lg.get("level", "INFO")
+        self.log_dir: str = lg.get("dir", "logs")
+
         # Storage
         self.db_path: str = raw["storage"]["db_path"]
 

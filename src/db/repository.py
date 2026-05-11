@@ -6,7 +6,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from .models import FollowedAccount, Tweet, DigestLog, ConversationLog, Bookmark
+from .models import FollowedAccount, Tweet, DigestLog, ConversationLog, Bookmark, AgentMemory
 
 
 def upsert_account(session: Session, twitter_user_id: str, username: str,
@@ -47,6 +47,10 @@ def get_all_twitter_ids(session: Session) -> set:
 
 def tweet_exists(session: Session, tweet_id: str) -> bool:
     return session.query(Tweet).filter_by(tweet_id=tweet_id).first() is not None
+
+
+def get_tweets_by_ids(session: Session, tweet_ids: list[str]) -> list:
+    return session.query(Tweet).filter(Tweet.tweet_id.in_(tweet_ids)).all()
 
 
 def insert_tweet(session: Session, data: dict) -> Optional[Tweet]:
@@ -355,6 +359,136 @@ def mark_bookmark_reminded(session: Session, bookmark_id: int) -> None:
     if bm:
         bm.reminded = True
         session.commit()
+
+
+def get_task_archives(session: Session, user_id: str, limit: int = 5) -> list:
+    return session.query(ConversationLog).filter_by(
+        user_id=user_id, role="task_archive"
+    ).order_by(ConversationLog.created_at.desc()).limit(limit).all()
+
+
+def delete_old_task_archives(session: Session, user_id: str, keep: int = 5) -> int:
+    """清理旧归档，保留最近 keep 条，返回删除数。"""
+    all_ids = [r[0] for r in session.query(ConversationLog.id).filter_by(
+        user_id=user_id, role="task_archive"
+    ).order_by(ConversationLog.created_at.desc()).all()]
+    if len(all_ids) <= keep:
+        return 0
+    to_delete = all_ids[keep:]
+    deleted = session.query(ConversationLog).filter(
+        ConversationLog.id.in_(to_delete)
+    ).delete(synchronize_session=False)
+    session.commit()
+    return deleted
+
+
+# ── 长期记忆 ──
+
+def get_corrections(session: Session, user_id: str) -> list:
+    return session.query(AgentMemory).filter_by(
+        user_id=user_id, type="correction"
+    ).order_by(AgentMemory.updated_at.desc()).all()
+
+
+def get_latest_snapshot(session: Session, user_id: str) -> AgentMemory | None:
+    return session.query(AgentMemory).filter_by(
+        user_id=user_id, type="topic_snapshot"
+    ).order_by(AgentMemory.created_at.desc()).first()
+
+
+def save_memory(session: Session, user_id: str, mtype: str, content: str,
+                embedding: str = "", extra: dict | None = None) -> AgentMemory:
+    mem = AgentMemory(
+        user_id=user_id, type=mtype, content=content,
+        embedding=embedding, extra=json.dumps(extra or {}, ensure_ascii=False))
+    session.add(mem)
+    session.commit()
+    return mem
+
+
+def update_memory(session: Session, memory_id: int, content: str,
+                  embedding: str = "", extra: dict | None = None) -> None:
+    mem = session.query(AgentMemory).get(memory_id)
+    if mem:
+        mem.content = content
+        mem.weight = 1.0
+        mem.updated_at = datetime.now(timezone.utc)
+        if embedding:
+            mem.embedding = embedding
+        if extra:
+            mem.extra = json.dumps(extra, ensure_ascii=False)
+        session.commit()
+
+
+def search_similar_memory(session: Session, user_id: str, mtype: str,
+                          embedding: str, threshold: float = 0.7) -> AgentMemory | None:
+    """用余弦相似度找已有相似记忆，用于合并去重。"""
+    if not embedding:
+        return None
+    candidates = session.query(AgentMemory).filter_by(
+        user_id=user_id, type=mtype
+    ).filter(AgentMemory.embedding != "").all()
+    if not candidates:
+        return None
+    try:
+        import numpy as np
+        query_vec = np.array(json.loads(embedding))
+        best, best_score = None, 0
+        for c in candidates:
+            c_vec = np.array(json.loads(c.embedding))
+            score = np.dot(query_vec, c_vec)
+            if score > best_score:
+                best_score = score
+                best = c
+        if best and best_score >= threshold:
+            return best
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return None
+
+
+def cleanup_snapshots(session: Session, user_id: str, max_per_topic: int = 10) -> int:
+    """同一 topic 的快照超过上限时删最旧。"""
+    deleted = 0
+    snapshots = session.query(AgentMemory).filter_by(
+        user_id=user_id, type="topic_snapshot"
+    ).order_by(AgentMemory.created_at.desc()).all()
+    by_topic: dict[str, list] = {}
+    for s in snapshots:
+        try:
+            topic = json.loads(s.extra).get("topic", "_")
+        except (json.JSONDecodeError, TypeError):
+            topic = "_"
+        by_topic.setdefault(topic, []).append(s)
+    for topic, items in by_topic.items():
+        if len(items) > max_per_topic:
+            for s in items[max_per_topic:]:
+                session.delete(s)
+                deleted += 1
+    if deleted:
+        session.commit()
+    return deleted
+
+
+def list_memories(session: Session, user_id: str) -> list:
+    return session.query(AgentMemory).filter_by(user_id=user_id).order_by(
+        AgentMemory.updated_at.desc()).all()
+
+
+def delete_memory(session: Session, memory_id: int) -> bool:
+    mem = session.query(AgentMemory).get(memory_id)
+    if mem:
+        session.delete(mem)
+        session.commit()
+        return True
+    return False
+
+
+def clear_memories_by_type(session: Session, user_id: str, mtype: str) -> int:
+    deleted = session.query(AgentMemory).filter_by(
+        user_id=user_id, type=mtype).delete()
+    session.commit()
+    return deleted
 
 
 def cleanup_old_tweets(session: Session, months: int = 3) -> int:

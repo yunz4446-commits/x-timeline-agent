@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 
 from ..config import Config
 from ..db.engine import get_session
+from ..alerter import send_alert
 from ..db.repository import (
     insert_tweet, get_active_accounts,
     update_author_last_fetched, cleanup_old_tweets,
@@ -22,6 +23,8 @@ logger = logging.getLogger(__name__)
 _classifier = None
 _feishu = None
 _consecutive_empty_fetches = 0
+_consecutive_classify_failures = 0
+_consecutive_digest_failures = 0
 
 
 def _get_classifier(config: Config):
@@ -139,7 +142,7 @@ def fetch_timeline_job(config: Config, since: datetime | None = None,
             if attempt == 1:
                 logger.warning("fetch_timeline_job attempt 1 failed: %s, retrying...", exc)
             else:
-                logger.error("fetch_timeline_job failed after retry: %s", exc)
+                logger.exception("fetch_timeline_job failed after retry")
                 n = -1
     if n == 0:
         _consecutive_empty_fetches += 1
@@ -147,11 +150,17 @@ def fetch_timeline_job(config: Config, since: datetime | None = None,
             logger.warning(
                 "HEALTH: %d consecutive empty fetches — session may have expired. "
                 "Run: python main.py login", _consecutive_empty_fetches)
+            if config.alerts_enabled and config.feishu_webhook_url:
+                send_alert(config.feishu_webhook_url,
+                           "推文连续抓空",
+                           f"已连续 {_consecutive_empty_fetches} 次抓取为空，X 会话可能已过期。请重新登录。",
+                           level="warning")
     else:
         _consecutive_empty_fetches = 0
 
 
 def classify_tweets_job(config: Config) -> None:
+    global _consecutive_classify_failures
     logger.info("Job: classify_tweets")
     try:
         classifier = _get_classifier(config)
@@ -166,8 +175,15 @@ def classify_tweets_job(config: Config) -> None:
             logger.info("Classified %d tweets", total)
         finally:
             session.close()
+        _consecutive_classify_failures = 0
     except Exception as exc:
-        logger.error("classify_tweets_job failed: %s", exc)
+        _consecutive_classify_failures += 1
+        logger.exception("classify_tweets_job failed")
+        if _consecutive_classify_failures >= 3 and config.alerts_enabled and config.feishu_webhook_url:
+            send_alert(config.feishu_webhook_url,
+                       "LLM 分类连续失败",
+                       f"classify_tweets_job 已连续失败 {_consecutive_classify_failures} 次。LLM API 可能不可用。",
+                       level="error")
 
 
 def sync_following_job(config: Config) -> None:
@@ -186,10 +202,40 @@ def sync_following_job(config: Config) -> None:
         n = _sync_following(config, my_username)
         logger.info("Following sync: %d accounts", n)
     except Exception as exc:
-        logger.error("sync_following_job failed: %s", exc)
+        logger.exception("sync_following_job failed")
+        if config.alerts_enabled and config.feishu_webhook_url:
+            send_alert(config.feishu_webhook_url,
+                       "关注列表同步失败",
+                       f"sync_following_job 执行异常: {exc}",
+                       level="warning")
+
+
+def _get_period_since(period: str, all_times: list[str], tz_name: str) -> datetime:
+    """给定当前时段，返回时间窗口起点（UTC datetime）。
+
+    period 的前一个时段为起点；如果是当天第一个时段，起点为前一天最后一个时段。
+    比如 digest_times=["10:00","15:00","20:00"], period="15:00" → 返回北京时间今天 10:00(UTC)。
+    """
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo(tz_name)
+    now_tz = datetime.now(tz)
+
+    sorted_times = sorted(all_times)
+    idx = sorted_times.index(period)
+    if idx == 0:
+        prev = sorted_times[-1]
+        day_offset = -1
+    else:
+        prev = sorted_times[idx - 1]
+        day_offset = 0
+    h, m = map(int, prev.split(":"))
+    since_tz = now_tz.replace(hour=h, minute=m, second=0, microsecond=0) + timedelta(days=day_offset)
+    return since_tz.astimezone(timezone.utc)
 
 
 def send_digest_job(config: Config, period: str = "10:00") -> None:
+    global _consecutive_digest_failures
     logger.info("Job: send_digest %s", period)
     try:
         feishu = _get_feishu(config)
@@ -198,13 +244,7 @@ def send_digest_job(config: Config, period: str = "10:00") -> None:
             return
         session = get_session()
         try:
-            now = datetime.now(timezone.utc)
-            if period == "10:00":
-                since = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(hours=8)
-            else:
-                since = now.replace(hour=10, minute=0, second=0, microsecond=0) - timedelta(hours=8)
-                if since > now:
-                    since = since - timedelta(days=1)
+            since = _get_period_since(period, config.digest_times, config.timezone)
             builder = DigestBuilder(session, since=since,
                                     min_score=config.min_interest_score,
                                     max_per=config.max_items_per_digest,
@@ -221,8 +261,15 @@ def send_digest_job(config: Config, period: str = "10:00") -> None:
             logger.info("Digest %s sent: %d tweets", period, digest["total"])
         finally:
             session.close()
+        _consecutive_digest_failures = 0
     except Exception as exc:
-        logger.error("send_digest_job failed: %s", exc)
+        _consecutive_digest_failures += 1
+        logger.exception("send_digest_job failed")
+        if _consecutive_digest_failures >= 2 and config.alerts_enabled and config.feishu_webhook_url:
+            send_alert(config.feishu_webhook_url,
+                       "Digest 连续发送失败",
+                       f"send_digest_job 已连续失败 {_consecutive_digest_failures} 次。请检查 LLM API 和飞书连接。",
+                       level="error")
 
 
 def cleanup_tweets_job(config: Config, months: int = 3) -> None:
@@ -236,4 +283,9 @@ def cleanup_tweets_job(config: Config, months: int = 3) -> None:
         finally:
             session.close()
     except Exception as exc:
-        logger.error("cleanup_tweets_job failed: %s", exc)
+        logger.exception("cleanup_tweets_job failed")
+        if config.alerts_enabled and config.feishu_webhook_url:
+            send_alert(config.feishu_webhook_url,
+                       "推文清理失败",
+                       f"cleanup_tweets_job 执行异常: {exc}",
+                       level="warning")

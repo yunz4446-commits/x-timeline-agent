@@ -10,6 +10,8 @@ services:
     volumes:
       - ./data:/app/data
       - ./config.yaml:/app/config.yaml:ro
+      - ./src:/app/src:ro
+      - ./main.py:/app/main.py:ro
     logging:
       driver: "json-file"
       options:

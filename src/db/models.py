@@ -112,3 +112,22 @@ class Bookmark(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "tweet_id", name="uq_user_tweet_bookmark"),
     )
+
+
+class AgentMemory(Base):
+    """长期记忆 — 纠错规则 + 话题快照"""
+    __tablename__ = "agent_memories"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(128), nullable=False, index=True)
+    type = Column(String(32), nullable=False)   # correction | topic_snapshot
+    content = Column(Text, default="")
+    weight = Column(Float, default=1.0)
+    extra = Column(Text, default="{}")          # JSON: {topic, decay_rate, ...}
+    embedding = Column(Text, default="")        # JSON array of 384 floats
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("idx_memory_user_type", "user_id", "type"),
+    )

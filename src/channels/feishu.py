@@ -67,7 +67,7 @@ class FeishuWebhook(Channel):
                 return False
             return True
         except Exception as exc:
-            logger.error("Feishu webhook failed: %s", exc)
+            logger.exception("Feishu webhook failed")
             return False
 
 

@@ -26,7 +26,26 @@ def create_app(config):
 
     @app.route("/health", methods=["GET"])
     def health():
-        return jsonify({"status": "ok"})
+        checks = {}
+        # DB
+        try:
+            from ..db.engine import get_session
+            from sqlalchemy import text
+            s = get_session()
+            s.execute(text("SELECT 1"))
+            s.close()
+            checks["db"] = "ok"
+        except Exception:
+            checks["db"] = "fail"
+        # LLM
+        if _config and _config.llm_api_key:
+            checks["llm"] = "ok"
+        else:
+            checks["llm"] = "skip"
+        all_ok = all(
+            v in ("ok", "skip") for v in checks.values()
+        )
+        return jsonify({"status": "ok" if all_ok else "degraded", **checks})
 
     @app.route("/feishu/callback", methods=["POST"])
     def callback():
@@ -103,10 +122,11 @@ def _handle_message(text: str, open_id: str) -> None:
                 model=_config.llm_model,
                 config=_config,
             )
+        _bot.send_message_sync("收到，正在处理...", open_id)
         response = _agent.handle_message(text, user_id=open_id)
         logger.info("Reply to %s: %s", open_id, response[:80])
         _bot.send_message_sync(response, open_id)
     except Exception as exc:
-        logger.error("Feishu message handler error: %s", exc)
+        logger.exception("Feishu message handler error")
         if _bot and open_id:
             _bot.send_message_sync(f"(出错了: {exc})", open_id)

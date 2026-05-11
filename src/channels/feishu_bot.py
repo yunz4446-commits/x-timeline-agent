@@ -78,7 +78,7 @@ class FeishuBot:
                 return False
             return True
         except Exception as exc:
-            logger.error("FeishuBot send error: %s", exc)
+            logger.exception("FeishuBot send error")
             return False
 
 

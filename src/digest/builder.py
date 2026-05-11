@@ -35,7 +35,7 @@ class DigestBuilder:
 
         # 2. 高价值推文展示
         tweets = get_useful_tweets(
-            self._session, min_score=self._min_score, limit=self._max_items * 2)
+            self._session, min_score=self._min_score, limit=500, since=self._since)
 
         if self._since:
             filtered = []
@@ -98,8 +98,10 @@ class DigestBuilder:
 
             topics = summary.get("topics", [])
             if topics:
-                sentiment_map = {"偏多": "\U0001f7e2", "偏空": "\U0001f534",
-                                 "分歧": "\U0001f7e0", "观望": "\U0001f7e1"}
+                sentiment_map = {"积极": "\U0001f7e2", "消极": "\U0001f534",
+                                 "分歧": "\U0001f7e0", "中性": "\U0001f7e1",
+                                 "偏多": "\U0001f7e2", "偏空": "\U0001f534",
+                                 "观望": "\U0001f7e1"}
                 for tp in topics:
                     emoji = sentiment_map.get(tp.get("sentiment", ""), "")
                     lines.append(

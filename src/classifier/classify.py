@@ -11,33 +11,32 @@ from ..db.repository import get_unclassified_tweets, update_tweet_classification
 
 logger = logging.getLogger(__name__)
 
-BATCH_PROMPT = """You are scoring tweets for a user who trades crypto and follows the AI industry.
+BATCH_PROMPT = """You are scoring tweets for a user.
 The user follows these accounts intentionally — they are the user's curated information sources.
 Content from these accounts is inherently more relevant than content from strangers.
 
 A tweet is "useful" (0.0-1.0) if it provides value in ANY of these dimensions:
 
-1. 信息差/Alpha — on-chain data, early opportunities, anomalies others missed
-2. 可操作的判断 — actionable analysis with reasoning, any length
-3. 市场情绪 — crowd fear/greed, what most people are talking about, market vibe
-4. 实盘/仓位分享 — sharing personal positions, entry/exit, P&L, trade journals, rebalancing, "I bought/sold X", "my portfilio is...", trade reflections and lessons learned. This applies to ANY account the user follows, not just big names
-5. 关键事件 — policy changes, hacks, liquidations, protocol upgrades, catalysts
-6. AI实用信息 — new tools, new models, actionable technical details
-7. Meme声量 — meme coin shilling density, accounts shouting a token ticker
+1. 信息密度 — novel facts, data, details others may have missed; breaking news; insider knowledge
+2. 可操作见解 — actionable takeaways with clear reasoning; practical how-to; decisions explained
+3. 独特观点 — non-obvious opinions, original analysis, contrarian takes, thought-provoking arguments
+4. 经验分享 — personal experiences, case studies, lessons learned, project updates, "what I did and why"
+5. 重要事件 — significant developments, policy changes, product launches, major announcements
+6. 情绪共鸣 — humor, cultural commentary, emotional moments that resonate with the community
 
 Scoring guide:
-- 0.0-0.2: noise, GM/WAGMI, spam, ads, giveaways, pure engagement farming
-- 0.3-0.5: mildly interesting but no real signal (vague commentary, reposted news)
-- 0.6-0.7: solid signal worth reading — clear opinion, useful info, notable event. Personal position/trade sharing from followed accounts starts here
-- 0.8-0.9: strong signal — conviction call, alpha leak, actionable insight, detailed trade breakdown with reasoning
-- 1.0: must-read, direct PnL impact, urgent actionable intelligence
+- 0.0-0.2: noise, spam, ads, giveaways, bots, pure engagement farming
+- 0.3-0.5: mildly interesting but no real signal (vague commentary, reposted news without analysis)
+- 0.6-0.7: solid signal worth reading — clear opinion, useful info, notable event. Personal experience sharing from followed accounts starts here
+- 0.8-0.9: strong signal — original insight, detailed reasoning, rare/exclusive information
+- 1.0: must-read, exceptional quality, direct relevance to what the user cares about
 
-IMPORTANT: Personal trading content (dimension 4) from accounts the user follows is VALUABLE.
-A tweet like "加了点SOL仓位" or "止损了BTC空单" is at least 0.6, even if short or from a small account.
+IMPORTANT: Personal experience content (dimension 4) from accounts the user follows is VALUABLE.
+A tweet like "今天尝试了新的工作流，效率提升了30%" or "刚读完这本书，三个核心观点分享" is at least 0.6, even if short or from a small account.
 The user curated these follows precisely to see this kind of content.
 
 A tweet only needs to score high on ONE dimension to be useful.
-Short tweets can be highly useful if they convey conviction or position info.
+Short tweets can be highly useful if they convey insight or unique perspective.
 
 Return a JSON array with one object per tweet (same order):
 [{{
@@ -83,13 +82,17 @@ class TweetClassifier:
         prompt = BATCH_PROMPT.format(tweet_list=chr(10).join(lines))
 
         try:
-            resp = self._client.chat.completions.create(
-                model=self._model,
-                messages=[{"role": "user", "content": prompt}],
+            from ..metrics import call_with_metrics
+            result = call_with_metrics(
+                self._client, self._model, "classify",
+                [{"role": "user", "content": prompt}],
                 temperature=0.1,
                 max_tokens=4000,
             )
-            content = resp.choices[0].message.content or "[]"
+            if not result.get("ok"):
+                logger.error("Batch classify LLM failed: %s", result.get("error"))
+                return 0
+            content = result["response"].choices[0].message.content or "[]"
             content = content.strip()
             # Strip markdown fences
             if "```" in content:
@@ -113,11 +116,11 @@ class TweetClassifier:
                     logger.error("Unexpected batch result format: %s", str(results)[:200])
                     return 0
         except json.JSONDecodeError as exc:
-            logger.error("Batch classify JSON parse failed: %s", exc)
+            logger.exception("Batch classify JSON parse failed")
             logger.debug("Raw content: %s", content[:500])
             return 0
         except Exception as exc:
-            logger.error("Batch classify API failed: %s", exc)
+            logger.exception("Batch classify API failed")
             return 0
 
         # Update tweets

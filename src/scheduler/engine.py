@@ -61,7 +61,7 @@ class SchedulerRunner:
             hour, minute = t.split(":")
             self._scheduler.add_job(
                 send_digest_job,
-                CronTrigger(hour=int(hour), minute=int(minute)),
+                CronTrigger(hour=int(hour), minute=int(minute), timezone=cfg.timezone),
                 id=f"digest_{t}",
                 name=f"Send digest {t}",
                 kwargs={"config": cfg, "period": t},
@@ -70,7 +70,7 @@ class SchedulerRunner:
         # 5) Cleanup old tweets: daily at 3:57 AM (off-peak)
         self._scheduler.add_job(
             cleanup_tweets_job,
-            CronTrigger(hour=3, minute=57),
+            CronTrigger(hour=3, minute=57, timezone=cfg.timezone),
             id="cleanup_tweets",
             name="Cleanup old tweets",
             kwargs={"config": cfg, "months": 3},
