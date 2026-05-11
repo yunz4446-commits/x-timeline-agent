@@ -1,68 +1,68 @@
 # X Timeline Agent
 
-AI-powered X (Twitter) timeline curation agent. Automatically scrapes your timeline, classifies tweets by usefulness, generates deep summaries, and delivers digests via Feishu — plus an interactive chat agent to answer questions about your timeline.
+AI 驱动的 X（Twitter）时间线策展助手。自动抓取时间线、对推文进行价值评分、生成深度摘要、通过飞书推送日报——还内置了一个交互式聊天 Agent，可以随时回答关于时间线的问题。
 
-## Features
+## 功能特性
 
-- **Browser Automation** — Playwright-based X scraper with stealth plugin, cookie persistence
-- **AI Classification** — LLM scores every tweet on 6 dimensions (information density, actionable insights, unique perspectives, experience sharing, key events, emotional resonance)
-- **Deep Summarization** — Topic clustering, cross-referencing viewpoints, incremental summaries with state persistence
-- **Semantic Search** — Sentence-transformer embeddings for bilingual keyword search
-- **Scheduled Digests** — Configurable daily digest push via Feishu webhook/bot
-- **Interactive Chat** — 10-intent tool-calling agent (summarize, search, bookmark, recall context, memory management)
-- **Long-term Memory** — Extracts user preferences and topic snapshots, merges via embedding similarity
+- **浏览器自动化** — 基于 Playwright 的 X 抓取器，内置 stealth 插件、cookie 持久化
+- **AI 分类评分** — LLM 从 6 个维度给每条推文打分（信息密度、可操作见解、独特观点、经验分享、重要事件、情绪共鸣）
+- **深度摘要** — 话题聚类、观点交叉对比、增量摘要（带状态持久化）
+- **语义搜索** — 基于 Sentence-Transformer 的向量嵌入，支持中英双语关键词搜索
+- **定时推送** — 可配置的每日飞书摘要推送（支持 Webhook 和企业 Bot）
+- **交互式对话** — 10 种意图的工具调用 Agent（总结、搜索、收藏、回溯上下文、记忆管理）
+- **长期记忆** — 提取用户偏好和话题快照，通过嵌入相似度去重合并
 
-## Quick Start
+## 快速开始
 
-### Prerequisites
+### 环境要求
 
 - Python 3.12+
 - Playwright Chromium
-- LLM API key (DeepSeek or any OpenAI-compatible endpoint)
-- Feishu webhook URL (for receiving digests)
-- X (Twitter) account
+- LLM API Key（DeepSeek 或任意 OpenAI 兼容接口）
+- 飞书 Webhook URL（用于接收摘要推送）
+- X（Twitter）账号
 
-### Installation
+### 安装
 
 ```bash
-git clone https://github.com/your-username/x-timeline-agent.git
+git clone https://github.com/yunz4446-commits/x-timeline-agent.git
 cd x-timeline-agent
 pip install -r requirements.txt
 playwright install --with-deps chromium
 ```
 
-### Configuration
+### 配置
 
 ```bash
 cp .env.example .env
-# Edit .env — fill in your LLM_API_KEY and FEISHU_WEBHOOK_URL
+# 编辑 .env — 填写 LLM_API_KEY 和 FEISHU_WEBHOOK_URL
 ```
 
-See `config.yaml` for optional tuning (schedule times, scoring thresholds, etc.).
+`config.yaml` 中可调整调度时间、评分阈值等可选参数。
 
-### Usage
+### 使用
 
 ```bash
-python main.py setup     # Check configuration
-python main.py login     # Open browser to log into X
-python main.py fetch     # Test scrape + classify
-python main.py digest    # Send a test digest
-python main.py chat      # Interactive chat agent
-python main.py run       # Start scheduler + Feishu server
+python main.py setup     # 检查配置
+python main.py login     # 打开浏览器登录 X
+python main.py fetch     # 手动抓取 + 分类
+python main.py digest    # 发送一次测试摘要
+python main.py chat      # 进入交互对话
+python main.py run       # 启动定时调度 + 飞书回调服务
 ```
 
-## Project Structure
+## 项目结构
 
 ```
 src/
-├── agent/          # Chat agent (core, tools, prompts, memory, summarize, narrative)
-├── browser/        # X.com automation (Playwright + stealth)
-├── classifier/     # LLM tweet classification
-├── digest/         # Digest builder + markdown formatting
-├── channels/       # Feishu webhook + enterprise bot
-├── scheduler/      # APScheduler jobs (fetch, classify, digest, cleanup)
-├── db/             # SQLAlchemy models + repository
-└── search/         # Sentence-transformer embeddings + semantic search
+├── agent/          # 对话 Agent（核心、工具、提示词、记忆、摘要、叙事）
+├── browser/        # X.com 浏览器自动化（Playwright + stealth）
+├── classifier/     # LLM 推文分类评分
+├── digest/         # 摘要生成 + Markdown 格式化
+├── channels/       # 飞书 Webhook + 企业 Bot
+├── scheduler/      # APScheduler 定时任务（抓取、分类、摘要、清理）
+├── db/             # SQLAlchemy 模型 + 数据访问
+└── search/         # Sentence-Transformer 嵌入 + 语义搜索
 ```
 
 ## License
